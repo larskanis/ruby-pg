@@ -268,8 +268,7 @@ describe PG::Connection do
 		expect( @conn.tty ).to eq( "" )
 		expect( @conn.options ).to eq( "" )
 	end
-	it "can retrieve it's connection parameters for the established connection",
-	    skip: RUBY_PLATFORM=~/x64-mingw/ ? "host segfaults on Windows-x64" : false do
+	it "can retrieve it's connection parameters for the established connection" do
 		expect( @conn.host ).to eq( "localhost" )
 	end
 
