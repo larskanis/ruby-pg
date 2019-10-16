@@ -1,0 +1,34 @@
+FROM s390x/fedora
+
+ENV TEST_USER ruby-pg
+
+RUN uname -a
+RUN sudo dnf install -y \
+  postgresql-server \
+  libpq-devel \
+  ruby-devel \
+  rubygem-bundler \
+  gcc \
+  redhat-rpm-config \
+  make
+
+WORKDIR /build
+
+RUN ruby --version
+RUN pg_ctl --version
+RUN initdb --version
+
+COPY . .
+RUN rm -rf tmp_test_specs
+
+# Create test user and the environment
+RUN useradd "${TEST_USER}"
+RUN chown -R "${TEST_USER}:${TEST_USER}" /build
+# Enable sudo without password for convenience.
+RUN echo "${TEST_USER} ALL = NOPASSWD: ALL" >> /etc/sudoers
+USER "${TEST_USER}"
+RUN ls -l
+
+CMD bundle install --path vendor/bundle && \
+    (bundle exec rake compile MAKE="make -j`nproc`" || (head -20 mkmf.log; false)) && \
+    (bundle exec rake test || (head -20 ./tmp_test_specs/setup.log; false))

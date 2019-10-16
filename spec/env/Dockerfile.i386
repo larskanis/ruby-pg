@@ -1,14 +1,9 @@
 FROM i386/ubuntu:bionic
 
-ARG PGPATH
-
-ENV PATH "${PGPATH}:${PATH}"
+ENV PATH "/usr/lib/postgresql/10/bin:${PATH}"
 ENV TEST_USER ruby-pg
 # To prevent installed tzdata deb package to show interactive dialog.
 ENV DEBIAN_FRONTEND noninteractive
-
-WORKDIR /build
-COPY . .
 
 RUN uname -a
 RUN apt-get update -qq && \
@@ -29,15 +24,24 @@ RUN apt-get update -qq && \
 RUN add-apt-repository -y universe && \
   apt-get update -qq && \
   apt-get install -yq ruby-bundler
+
+WORKDIR /build
+
 RUN ruby --version
 RUN pg_ctl --version
+RUN initdb --version
+
+COPY . .
+RUN rm -rf tmp_test_specs
+
 # Create test user and the environment
 RUN useradd "${TEST_USER}"
 RUN chown -R "${TEST_USER}:${TEST_USER}" /build
 # Enable sudo without password for convenience.
 RUN echo "${TEST_USER} ALL = NOPASSWD: ALL" >> /etc/sudoers
 USER "${TEST_USER}"
+RUN ls -l
 
 CMD bundle install --path vendor/bundle && \
-    (bundle exec rake compile || (head -20 mkmf.log; false)) && \
+    (bundle exec rake compile MAKE="make -j`nproc`" || (head -20 mkmf.log; false)) && \
     (bundle exec rake test || (head -20 ./tmp_test_specs/setup.log; false))
