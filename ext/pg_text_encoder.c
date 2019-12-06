@@ -50,8 +50,11 @@
 VALUE rb_mPG_TextEncoder;
 static ID s_id_encode;
 static ID s_id_to_i;
+static ID s_id_to_s;
+static ID s_cBigDecimal;
+static VALUE s_str_F;
 
-static int pg_text_enc_integer(t_pg_coder *this, VALUE value, char *out, VALUE *intermediate, int enc_idx);
+static int pg_text_enc_numeric(t_pg_coder *this, VALUE value, char *out, VALUE *intermediate, int enc_idx);
 
 VALUE
 pg_obj_to_i( VALUE value )
@@ -95,7 +98,7 @@ pg_text_enc_boolean(t_pg_coder *this, VALUE value, char *out, VALUE *intermediat
 				if(out) *out = '1';
 				return 1;
 			} else {
-				return pg_text_enc_integer(this, value, out, intermediate, enc_idx);
+				return pg_text_enc_numeric(this, value, out, intermediate, enc_idx);
 			}
 		default:
 			return pg_coder_enc_to_s(this, value, out, intermediate, enc_idx);
@@ -144,195 +147,203 @@ count_leading_zero_bits(unsigned long long x)
 #endif
 }
 
+#define MAX_DOUBLE_DIGITS 16
+
 /*
  * Document-class: PG::TextEncoder::Integer < PG::SimpleEncoder
+ * Document-class: PG::TextEncoder::Float < PG::SimpleEncoder
  *
  * This is the encoder class for the PostgreSQL int types.
  *
  * Non-Integer values are expected to have method +to_i+ defined.
  *
- */
-static int
-pg_text_enc_integer(t_pg_coder *this, VALUE value, char *out, VALUE *intermediate, int enc_idx)
-{
-	if(out){
-		if(TYPE(*intermediate) == T_STRING){
-			return pg_coder_enc_to_s(this, value, out, intermediate, enc_idx);
-		}else{
-			char *start = out;
-			int len;
-			int neg = 0;
-			long long sll = NUM2LL(*intermediate);
-			unsigned long long ll;
-
-			if (sll < 0) {
-				/* Avoid problems with the most negative integer not being representable
-				 * as a positive integer, by using unsigned long long for encoding.
-				 */
-				ll = -sll;
-				neg = 1;
-			} else {
-				ll = sll;
-			}
-
-			/* Compute the result string backwards. */
-			do {
-				unsigned long long remainder;
-				unsigned long long oldval = ll;
-
-				ll /= 10;
-				remainder = oldval - ll * 10;
-				*out++ = '0' + remainder;
-			} while (ll != 0);
-
-			if (neg)
-				*out++ = '-';
-
-			len = out - start;
-
-			/* Reverse string. */
-			out--;
-			while (start < out)
-			{
-				char swap = *start;
-
-				*start++ = *out;
-				*out-- = swap;
-			}
-
-			return len;
-		}
-	}else{
-		*intermediate = pg_obj_to_i(value);
-		if(TYPE(*intermediate) == T_FIXNUM){
-			long long sll = NUM2LL(*intermediate);
-			unsigned long long ll = sll < 0 ? -sll : sll;
-			int len = (sizeof(unsigned long long) * 8 - count_leading_zero_bits(ll)) / 3;
-			return sll < 0 ? len+2 : len+1;
-		}else{
-			return pg_coder_enc_to_s(this, *intermediate, NULL, intermediate, enc_idx);
-		}
-	}
-}
-
-#define MAX_DOUBLE_DIGITS 16
-
-/*
- * Document-class: PG::TextEncoder::Float < PG::SimpleEncoder
- *
  * This is the encoder class for the PostgreSQL float types.
- *
  */
 static int
-pg_text_enc_float(t_pg_coder *conv, VALUE value, char *out, VALUE *intermediate, int enc_idx)
+pg_text_enc_numeric(t_pg_coder *this, VALUE value, char *out, VALUE *intermediate, int enc_idx)
 {
 	if(out){
-		double dvalue = NUM2DBL(value);
-		int len = 0;
-		int neg = 0;
-		int exp2i, exp10i, i;
-		unsigned long long ll, remainder, oldval;
-		VALUE intermediate;
+		switch(TYPE(*intermediate)) {
+			case T_FIXNUM: {
+				char *start = out;
+				int len;
+				int neg = 0;
+				long long sll = NUM2LL(*intermediate);
+				unsigned long long ll;
 
-		/* Cast to the same strings as value.to_s . */
-		if( isinf(dvalue) ){
-			if( dvalue < 0 ){
-				memcpy( out, "-Infinity", 9);
-				return 9;
-			} else {
-				memcpy( out, "Infinity", 8);
-				return 8;
+				if (sll < 0) {
+					/* Avoid problems with the most negative integer not being representable
+					* as a positive integer, by using unsigned long long for encoding.
+					*/
+					ll = -sll;
+					neg = 1;
+				} else {
+					ll = sll;
+				}
+
+				/* Compute the result string backwards. */
+				do {
+					unsigned long long remainder;
+					unsigned long long oldval = ll;
+
+					ll /= 10;
+					remainder = oldval - ll * 10;
+					*out++ = '0' + remainder;
+				} while (ll != 0);
+
+				if (neg)
+					*out++ = '-';
+
+				len = out - start;
+
+				/* Reverse string. */
+				out--;
+				while (start < out)
+				{
+					char swap = *start;
+
+					*start++ = *out;
+					*out-- = swap;
+				}
+
+				return len;
 			}
-		} else if (isnan(dvalue)) {
-			memcpy( out, "NaN", 3);
-			return 3;
-		}
 
-		/*
-		 * The following computaion is roughly a conversion kind of
-		 *   sprintf( out, "%.16E", dvalue);
-		 */
+			case T_FLOAT: {
+				double dvalue = NUM2DBL(value);
+				int len = 0;
+				int neg = 0;
+				int exp2i, exp10i, i;
+				unsigned long long ll, remainder, oldval;
+				VALUE intermediate;
 
-		/* write the algebraic sign */
-		if( dvalue < 0 ) {
-			dvalue = -dvalue;
-			*out++ = '-';
-			neg++;
-		}
+				/* Cast to the same strings as value.to_s . */
+				if( isinf(dvalue) ){
+					if( dvalue < 0 ){
+						memcpy( out, "-Infinity", 9);
+						return 9;
+					} else {
+						memcpy( out, "Infinity", 8);
+						return 8;
+					}
+				} else if (isnan(dvalue)) {
+					memcpy( out, "NaN", 3);
+					return 3;
+				}
 
-		/* retrieve the power of 2 exponent */
-		frexp(dvalue, &exp2i);
-		/* compute the power of 10 exponent */
-		exp10i = (int)floor(exp2i * 0.30102999566398114); /* Math.log(2)/Math.log(10) */
-		/* move the decimal point, so that we get an integer of MAX_DOUBLE_DIGITS decimal digits */
-		ll = (unsigned long long)(dvalue * pow(10, MAX_DOUBLE_DIGITS - 1 - exp10i) + 0.5);
+				/*
+				* The following computaion is roughly a conversion kind of
+				*   sprintf( out, "%.16E", dvalue);
+				*/
 
-		/* avoid leading zeros due to inaccuracy of deriving exp10i from exp2i */
-		/* otherwise we would print "09.0" instead of "9.0" */
-		if( ll < 1000000000000000 ){ /* pow(10, MAX_DOUBLE_DIGITS-1) */
-			exp10i--;
-			ll *= 10;
-		}
+				/* write the algebraic sign */
+				if( dvalue < 0 ) {
+					dvalue = -dvalue;
+					*out++ = '-';
+					neg++;
+				}
 
-		if( exp10i <= -5 || exp10i >= 15 ) {
-			/* Write the float in exponent format (1.23e45) */
+				/* retrieve the power of 2 exponent */
+				frexp(dvalue, &exp2i);
+				/* compute the power of 10 exponent */
+				exp10i = (int)floor(exp2i * 0.30102999566398114); /* Math.log(2)/Math.log(10) */
+				/* move the decimal point, so that we get an integer of MAX_DOUBLE_DIGITS decimal digits */
+				ll = (unsigned long long)(dvalue * pow(10, MAX_DOUBLE_DIGITS - 1 - exp10i) + 0.5);
 
-			/* write fraction digits from right to left */
-			for( i = MAX_DOUBLE_DIGITS; i > 1; i--){
-				oldval = ll;
-				ll /= 10;
-				remainder = oldval - ll * 10;
-				/* omit trailing zeros */
-				if(remainder != 0 || len ) {
-					out[i] = '0' + remainder;
+				/* avoid leading zeros due to inaccuracy of deriving exp10i from exp2i */
+				/* otherwise we would print "09.0" instead of "9.0" */
+				if( ll < 1000000000000000 ){ /* pow(10, MAX_DOUBLE_DIGITS-1) */
+					exp10i--;
+					ll *= 10;
+				}
+
+				if( exp10i <= -5 || exp10i >= 15 ) {
+					/* Write the float in exponent format (1.23e45) */
+
+					/* write fraction digits from right to left */
+					for( i = MAX_DOUBLE_DIGITS; i > 1; i--){
+						oldval = ll;
+						ll /= 10;
+						remainder = oldval - ll * 10;
+						/* omit trailing zeros */
+						if(remainder != 0 || len ) {
+							out[i] = '0' + remainder;
+							len++;
+						}
+					}
+
+					/* write decimal point */
+					if( len ){
+						out[1] = '.';
+						len++;
+					}
+
+					/* write remaining single digit left to the decimal point */
+					oldval = ll;
+					ll /= 10;
+					remainder = oldval - ll * 10;
+					out[0] = '0' + remainder;
 					len++;
+
+					/* write exponent */
+					out[len++] = 'e';
+					intermediate = INT2NUM(exp10i);
+
+					/* recusive call numeric converter for exponent */
+					return neg + len + pg_text_enc_numeric(this, Qnil, out + len, &intermediate, enc_idx);
+				} else {
+					/* write the float in non exponent format (0.001234 or 123450.0) */
+
+					/* write digits from right to left */
+					int lz = exp10i < 0 ? 0 : exp10i;
+					for( i = MAX_DOUBLE_DIGITS - (exp10i < 0 ? exp10i : 0); i >= 0; i-- ){
+						oldval = ll;
+						ll /= 10;
+						remainder = oldval - ll * 10;
+						/* write decimal point */
+						if( i - 1 == lz ){
+							out[i--] = '.';
+							len++;
+						}
+						/* if possible then omit trailing zeros */
+						if(remainder != 0 || len || i - 2 == lz) {
+							out[i] = '0' + remainder;
+							len++;
+						}
+					}
+					return neg + len;
 				}
 			}
 
-			/* write decimal point */
-			if( len ){
-				out[1] = '.';
-				len++;
-			}
-
-			/* write remaining single digit left to the decimal point */
-			oldval = ll;
-			ll /= 10;
-			remainder = oldval - ll * 10;
-			out[0] = '0' + remainder;
-			len++;
-
-			/* write exponent */
-			out[len++] = 'e';
-			intermediate = INT2NUM(exp10i);
-
-			return neg + len + pg_text_enc_integer(conv, Qnil, out + len, &intermediate, enc_idx);
-		} else {
-			/* write the float in non exponent format (0.001234 or 123450.0) */
-
-			/* write digits from right to left */
-			int lz = exp10i < 0 ? 0 : exp10i;
-			for( i = MAX_DOUBLE_DIGITS - (exp10i < 0 ? exp10i : 0); i >= 0; i-- ){
-				oldval = ll;
-				ll /= 10;
-				remainder = oldval - ll * 10;
-				/* write decimal point */
-				if( i - 1 == lz ){
-					out[i--] = '.';
-					len++;
-				}
-				/* if possible then omit trailing zeros */
-				if(remainder != 0 || len || i - 2 == lz) {
-					out[i] = '0' + remainder;
-					len++;
-				}
-			}
-			return neg + len;
+			default:
+				rb_raise(rb_eArgError, "unexpected value type: %+"PRIsVALUE, *intermediate);
 		}
-	}else{
-		return 1 /*sign*/ + MAX_DOUBLE_DIGITS + 1 /*dot*/ + 1 /*e*/ + 1 /*exp sign*/ + 3 /*exp digits*/;
+
+	}else{ /* out==NULL => determine required size */
+		switch(TYPE(value)) {
+			case T_FIXNUM: {
+				long long sll = NUM2LL(value);
+				unsigned long long ll = sll < 0 ? -sll : sll;
+				int len = (sizeof(unsigned long long) * 8 - count_leading_zero_bits(ll)) / 3;
+				*intermediate = value;
+				return sll < 0 ? len+2 : len+1;
+			}
+			case T_FLOAT:
+				*intermediate = value;
+				return 1 /*sign*/ + MAX_DOUBLE_DIGITS + 1 /*dot*/ + 1 /*e*/ + 1 /*exp sign*/ + 3 /*exp digits*/;
+
+			default:
+				if( rb_obj_is_kind_of(value, s_cBigDecimal) ){
+					/* value.to_s('F') */
+					*intermediate = rb_funcall(value, s_id_to_s, 1, s_str_F);
+					return -1;
+				} else {
+					return pg_coder_enc_to_s(this, value, NULL, intermediate, enc_idx);
+				}
+		}
 	}
 }
+
 
 static const char hextab[] = {
 	'0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'a', 'b', 'c', 'd', 'e', 'f'
@@ -735,6 +746,11 @@ init_pg_text_encoder()
 {
 	s_id_encode = rb_intern("encode");
 	s_id_to_i = rb_intern("to_i");
+	s_id_to_s = rb_intern("to_s");
+	s_str_F = rb_str_freeze(rb_str_new_cstr("F"));
+	rb_global_variable(&s_str_F);
+	rb_require("bigdecimal");
+	s_cBigDecimal = rb_const_get(rb_cObject, rb_intern("BigDecimal"));
 
 	/* This module encapsulates all encoder classes with text output format */
 	rb_mPG_TextEncoder = rb_define_module_under( rb_mPG, "TextEncoder" );
@@ -742,11 +758,9 @@ init_pg_text_encoder()
 	/* Make RDoc aware of the encoder classes... */
 	/* dummy = rb_define_class_under( rb_mPG_TextEncoder, "Boolean", rb_cPG_SimpleEncoder ); */
 	pg_define_coder( "Boolean", pg_text_enc_boolean, rb_cPG_SimpleEncoder, rb_mPG_TextEncoder );
-	/* dummy = rb_define_class_under( rb_mPG_TextEncoder, "Integer", rb_cPG_SimpleEncoder ); */
-	pg_define_coder( "Integer", pg_text_enc_integer, rb_cPG_SimpleEncoder, rb_mPG_TextEncoder );
+	/* dummy = rb_define_class_under( rb_mPG_TextEncoder, "Numeric", rb_cPG_SimpleEncoder ); */
+	pg_define_coder( "Numeric", pg_text_enc_numeric, rb_cPG_SimpleEncoder, rb_mPG_TextEncoder );
 	/* dummy = rb_define_class_under( rb_mPG_TextEncoder, "Float", rb_cPG_SimpleEncoder ); */
-	pg_define_coder( "Float", pg_text_enc_float, rb_cPG_SimpleEncoder, rb_mPG_TextEncoder );
-	/* dummy = rb_define_class_under( rb_mPG_TextEncoder, "String", rb_cPG_SimpleEncoder ); */
 	pg_define_coder( "String", pg_coder_enc_to_s, rb_cPG_SimpleEncoder, rb_mPG_TextEncoder );
 	/* dummy = rb_define_class_under( rb_mPG_TextEncoder, "Bytea", rb_cPG_SimpleEncoder ); */
 	pg_define_coder( "Bytea", pg_text_enc_bytea, rb_cPG_SimpleEncoder, rb_mPG_TextEncoder );

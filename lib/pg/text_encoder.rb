@@ -30,10 +30,9 @@ module PG
 			end
 		end
 
-		class Numeric < SimpleEncoder
-			def encode(value)
-				value.is_a?(BigDecimal) ? value.to_s('F') : value
-			end
+		class Integer < Numeric
+		end
+		class Float < Numeric
 		end
 
 		class JSON < SimpleEncoder
