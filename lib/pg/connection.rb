@@ -93,6 +93,10 @@ class PG::Connection
 		return connect_hash_to_string(iopts)
 	end
 
+	def initialize(*_args, &_block)
+		@calls_to_put_copy_data = 0
+	end
+
 	#  call-seq:
 	#     conn.copy_data( sql [, coder] ) {|sql_result| ... } -> PG::Result
 	#

@@ -14,6 +14,25 @@ describe PG::Connection do
 		expect( ObjectSpace.memsize_of(@conn) ).to be > DATA_OBJ_MEMSIZE
 	end
 
+	class PgTestConnection < PG::Connection
+		@@called = []
+		def initialize(*args)
+			@@called << args
+			super
+		end
+	end
+
+	it "should call initialize in derived instance" do
+		c = PgTestConnection.new(@conninfo)
+		expect( c ).to be_a_kind_of( PgTestConnection )
+		expect( c.status ).to eq( PG::CONNECTION_OK )
+		called = PgTestConnection.class_variable_get(:@@called)
+		expect( called ).to eq( [[called.first.first]] )
+		expect( called.first.first[:dbname] ).to eq( "test" )
+		c.finish
+	end
+
+
 	describe "PG::Connection#conninfo_parse" do
 		it "encode and decode Hash to connection string to Hash" do
 			hash = {

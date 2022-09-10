@@ -266,7 +266,6 @@ pgconn_s_allocate( VALUE klass )
 	this->encoder_for_put_copy_data = Qnil;
 	this->decoder_for_get_copy_data = Qnil;
 	this->trace_stream = Qnil;
-	rb_ivar_set(self, rb_intern("@calls_to_put_copy_data"), INT2FIX(0));
 
 	return self;
 }
@@ -276,7 +275,7 @@ pgconn_s_sync_connect(int argc, VALUE *argv, VALUE klass)
 {
 	t_pg_connection *this;
 	VALUE conninfo;
-	VALUE self = pgconn_s_allocate( klass );
+	VALUE self = rb_class_new_instance( argc, argv, klass );
 
 	this = pg_get_connection( self );
 	conninfo = rb_funcall2( rb_cPGconn, rb_intern("parse_connect_args"), argc, argv );
@@ -325,7 +324,7 @@ pgconn_s_connect_start( int argc, VALUE *argv, VALUE klass )
 	 * PG::Connection.connect_start must act as both alloc() and initialize()
 	 * because it is not invoked by calling new().
 	 */
-	rb_conn  = pgconn_s_allocate( klass );
+	rb_conn  = rb_class_new_instance( argc, argv, klass );
 	this = pg_get_connection( rb_conn );
 	conninfo = rb_funcall2( klass, rb_intern("parse_connect_args"), argc, argv );
 	this->pgconn = gvl_PQconnectStart( StringValueCStr(conninfo) );
