@@ -475,6 +475,135 @@ class PG::Connection
 	alias nonblocking? isnonblocking
 
 	# call-seq:
+	#    conn.set_client_encoding( encoding )
+	#
+	# Sets the client encoding to the _encoding_ String.
+	def set_client_encoding(encoding)
+		exec("set client_encoding to '#{encoding}'")
+		set_internal_encoding_index
+		nil
+	end
+
+	#
+	# The mapping from canonical encoding names in PostgreSQL to ones in Ruby.
+	#
+	PG_ENC_PG2RUBY_MAPPING = {
+		"UTF8" =>        "UTF-8"       ,
+		"BIG5" =>        "Big5"        ,
+		"EUC_CN" =>      "GB2312"      ,
+		"EUC_JP" =>      "EUC-JP"      ,
+		"EUC_JIS_2004" =>"EUC-JP"      ,
+		"EUC_KR" =>      "EUC-KR"      ,
+		"EUC_TW" =>      "EUC-TW"      ,
+		"GB18030" =>     "GB18030"     ,
+		"GBK" =>         "GBK"         ,
+		"ISO_8859_5" =>  "ISO-8859-5"  ,
+		"ISO_8859_6" =>  "ISO-8859-6"  ,
+		"ISO_8859_7" =>  "ISO-8859-7"  ,
+		"ISO_8859_8" =>  "ISO-8859-8"  ,
+		# "JOHAB" =>       "JOHAB"       , dummy
+		"KOI8" =>        "KOI8-R"      ,
+		"KOI8R" =>       "KOI8-R"      ,
+		"KOI8U" =>       "KOI8-U"      ,
+		"LATIN1" =>      "ISO-8859-1"  ,
+		"LATIN2" =>      "ISO-8859-2"  ,
+		"LATIN3" =>      "ISO-8859-3"  ,
+		"LATIN4" =>      "ISO-8859-4"  ,
+		"LATIN5" =>      "ISO-8859-9"  ,
+		"LATIN6" =>      "ISO-8859-10" ,
+		"LATIN7" =>      "ISO-8859-13" ,
+		"LATIN8" =>      "ISO-8859-14" ,
+		"LATIN9" =>      "ISO-8859-15" ,
+		"LATIN10" =>     "ISO-8859-16" ,
+		"MULE_INTERNAL", "Emacs-Mule"  ,
+		"SJIS" =>        "Windows-31J" ,
+		"SHIFT_JIS_2004","Windows-31J" ,
+		# "SQL_ASCII" =>   NULL          } =>special case
+		"UHC" =>         "CP949"       ,
+		"WIN866" =>      "IBM866"      ,
+		"WIN874" =>      "Windows-874" ,
+		"WIN1250" =>     "Windows-1250",
+		"WIN1251" =>     "Windows-1251",
+		"WIN1252" =>     "Windows-1252",
+		"WIN1253" =>     "Windows-1253",
+		"WIN1254" =>     "Windows-1254",
+		"WIN1255" =>     "Windows-1255",
+		"WIN1256" =>     "Windows-1256",
+		"WIN1257" =>     "Windows-1257",
+		"WIN1258" =>     "Windows-1258"}
+	}
+	private_constant :PG_ENC_PG2RUBY_MAPPING
+
+	# call-seq:
+	#   conn.external_encoding() -> Encoding
+	#
+	# Return the +server_encoding+ of the connected database as a Ruby Encoding object.
+	# The <tt>SQL_ASCII</tt> encoding is mapped to to <tt>ASCII_8BIT</tt>.
+	def external_encoding
+		pg_encname = parameter_status("server_encoding")
+		pg_get_pg_encname_as_rb_encoding(pg_encname)
+	end
+
+	private def pg_get_pg_encname_as_rb_encoding(pg_encname)
+		get_client_encoding
+	end
+
+	# call-seq:
+	#   conn.internal_encoding -> Encoding
+	#
+	# defined in Ruby 1.9 or later.
+	#
+	# Returns:
+	# * an Encoding - client_encoding of the connection as a Ruby Encoding object.
+	# * nil - the client_encoding is 'SQL_ASCII'
+	def internal_encoding
+		pg_enc = get_client_encoding
+		PG_ENC_PG2RUBY_MAPPING[pg_enc]
+	end
+
+	# call-seq:
+	#    conn.set_default_encoding() -> Encoding
+	#
+	# If Ruby has its Encoding.default_internal set, set PostgreSQL's client_encoding
+	# to match. Returns the new Encoding, or +nil+ if the default internal encoding
+	# wasn't set.
+	def set_default_encoding
+
+		begin
+			set_client_encoding(encname)
+		rescue => err
+			warn( "Failed to set the default_internal encoding to %s: '%s'",
+								encname, err.to_s )
+		end
+		set_internal_encoding_index
+		Encoding.default_internal
+	end
+
+	PGconn *conn = pg_get_pgconn( self );
+	rb_encoding *rb_enc;
+
+	rb_check_frozen(self);
+	if (( rb_enc = rb_default_internal_encoding() )) {
+		rb_encoding * conn_encoding = pg_conn_enc_get( conn );
+
+		/* Don't set the server encoding, if it's unnecessary.
+		 * This is important for connection proxies, who disallow configuration settings.
+		 */
+		if ( conn_encoding != rb_enc ) {
+			const char *encname = pg_get_rb_encoding_as_pg_encoding( rb_enc );
+			if ( pgconn_set_client_encoding_async(self, rb_str_new_cstr(encname)) != 0 )
+				rb_warning( "Failed to set the default_internal encoding to %s: '%s'",
+								encname, PQerrorMessage(conn) );
+		}
+		pgconn_set_internal_encoding_index( self );
+		return rb_enc_from_encoding( rb_enc );
+	} else {
+		pgconn_set_internal_encoding_index( self );
+		return Qnil;
+	}
+}
+
+	# call-seq:
 	#    conn.put_copy_data( buffer [, encoder] ) -> Boolean
 	#
 	# Transmits _buffer_ as copy data to the server.

@@ -17,7 +17,6 @@ static VALUE sym_type, sym_format, sym_value;
 static VALUE sym_symbol, sym_string, sym_static_symbol;
 
 static VALUE pgconn_finish( VALUE );
-static VALUE pgconn_set_default_encoding( VALUE self );
 static VALUE pgconn_wait_for_flush( VALUE self );
 static void pgconn_set_internal_encoding_index( VALUE );
 static const rb_data_type_t pg_connection_type;
@@ -284,8 +283,6 @@ pgconn_s_sync_connect(int argc, VALUE *argv, VALUE klass)
 
 	if (PQstatus(this->pgconn) == CONNECTION_BAD)
 		pg_raise_conn_error( rb_eConnectionBad, self, "%s", PQerrorMessage(this->pgconn));
-
-	pgconn_set_default_encoding( self );
 
 	if (rb_block_given_p()) {
 		return rb_ensure(rb_yield, self, pgconn_finish, self);
@@ -4018,6 +4015,8 @@ pgconn_lounlink(VALUE self, VALUE in_oid)
 static void
 pgconn_set_internal_encoding_index( VALUE self )
 {
+	rb_funcall( self, rb_intern("set_internal_encoding_index"), 1,  );
+	rb_funcall(
 	int enc_idx;
 	t_pg_connection *this = pg_get_connection_safe( self );
 	rb_encoding *enc = pg_conn_enc_get( this->pgconn );
@@ -4026,28 +4025,16 @@ pgconn_set_internal_encoding_index( VALUE self )
 	this->enc_idx = enc_idx;
 }
 
-/*
- * call-seq:
- *   conn.internal_encoding -> Encoding
- *
- * defined in Ruby 1.9 or later.
- *
- * Returns:
- * * an Encoding - client_encoding of the connection as a Ruby Encoding object.
- * * nil - the client_encoding is 'SQL_ASCII'
- */
-static VALUE
-pgconn_internal_encoding(VALUE self)
+static void
+pgconn_set_internal_encoding_index_from_rb_encname( VALUE self, VALUE encoding )
 {
-	PGconn *conn = pg_get_pgconn( self );
-	rb_encoding *enc = pg_conn_enc_get( conn );
-
-	if ( enc ) {
-		return rb_enc_from_encoding( enc );
-	} else {
-		return Qnil;
-	}
+	int enc_idx;
+	t_pg_connection *this = pg_get_connection_safe( self );
+	enc_idx = rb_to_encoding_index( encoding )
+	if( enc_idx >= (1<<(PG_ENC_IDX_BITS-1)) ) rb_raise(rb_eArgError, "unsupported encoding index %d", enc_idx);
+	this->enc_idx = enc_idx;
 }
+
 
 static VALUE pgconn_external_encoding(VALUE self);
 
@@ -4089,110 +4076,6 @@ pgconn_internal_encoding_set(VALUE self, VALUE enc)
 	}
 }
 
-
-
-/*
- * call-seq:
- *   conn.external_encoding() -> Encoding
- *
- * Return the +server_encoding+ of the connected database as a Ruby Encoding object.
- * The <tt>SQL_ASCII</tt> encoding is mapped to to <tt>ASCII_8BIT</tt>.
- */
-static VALUE
-pgconn_external_encoding(VALUE self)
-{
-	t_pg_connection *this = pg_get_connection_safe( self );
-	rb_encoding *enc = NULL;
-	const char *pg_encname = NULL;
-
-	pg_encname = PQparameterStatus( this->pgconn, "server_encoding" );
-	enc = pg_get_pg_encname_as_rb_encoding( pg_encname );
-	return rb_enc_from_encoding( enc );
-}
-
-/*
- * call-seq:
- *    conn.set_client_encoding( encoding )
- *
- * Sets the client encoding to the _encoding_ String.
- */
-static VALUE
-pgconn_async_set_client_encoding(VALUE self, VALUE encname)
-{
-	VALUE query_format, query;
-
-	rb_check_frozen(self);
-	Check_Type(encname, T_STRING);
-	query_format = rb_str_new_cstr("set client_encoding to '%s'");
-	query = rb_funcall(query_format, rb_intern("%"), 1, encname);
-
-	pgconn_async_exec(1, &query, self);
-	pgconn_set_internal_encoding_index( self );
-
-	return Qnil;
-}
-
-static VALUE
-pgconn_set_client_encoding_async1( VALUE args )
-{
-	VALUE self = ((VALUE*)args)[0];
-	VALUE encname = ((VALUE*)args)[1];
-	pgconn_async_set_client_encoding(self, encname);
-	return 0;
-}
-
-
-static VALUE
-pgconn_set_client_encoding_async2( VALUE arg, VALUE ex )
-{
-	UNUSED(arg);
-	UNUSED(ex);
-	return 1;
-}
-
-
-static VALUE
-pgconn_set_client_encoding_async( VALUE self, VALUE encname )
-{
-	VALUE args[] = { self, encname };
-	return rb_rescue(pgconn_set_client_encoding_async1, (VALUE)&args, pgconn_set_client_encoding_async2, Qnil);
-}
-
-
-/*
- * call-seq:
- *   conn.set_default_encoding() -> Encoding
- *
- * If Ruby has its Encoding.default_internal set, set PostgreSQL's client_encoding
- * to match. Returns the new Encoding, or +nil+ if the default internal encoding
- * wasn't set.
- */
-static VALUE
-pgconn_set_default_encoding( VALUE self )
-{
-	PGconn *conn = pg_get_pgconn( self );
-	rb_encoding *rb_enc;
-
-	rb_check_frozen(self);
-	if (( rb_enc = rb_default_internal_encoding() )) {
-		rb_encoding * conn_encoding = pg_conn_enc_get( conn );
-
-		/* Don't set the server encoding, if it's unnecessary.
-		 * This is important for connection proxies, who disallow configuration settings.
-		 */
-		if ( conn_encoding != rb_enc ) {
-			const char *encname = pg_get_rb_encoding_as_pg_encoding( rb_enc );
-			if ( pgconn_set_client_encoding_async(self, rb_str_new_cstr(encname)) != 0 )
-				rb_warning( "Failed to set the default_internal encoding to %s: '%s'",
-								encname, PQerrorMessage(conn) );
-		}
-		pgconn_set_internal_encoding_index( self );
-		return rb_enc_from_encoding( rb_enc );
-	} else {
-		pgconn_set_internal_encoding_index( self );
-		return Qnil;
-	}
-}
 
 
 /*
@@ -4572,9 +4455,9 @@ init_pg_connection(void)
 	/******     PG::Connection INSTANCE METHODS: Other    ******/
 	rb_define_method(rb_cPGconn, "get_client_encoding", pgconn_get_client_encoding, 0);
 	rb_define_method(rb_cPGconn, "sync_set_client_encoding", pgconn_sync_set_client_encoding, 1);
-	rb_define_method(rb_cPGconn, "set_client_encoding", pgconn_async_set_client_encoding, 1);
 	rb_define_alias(rb_cPGconn, "async_set_client_encoding", "set_client_encoding");
 	rb_define_alias(rb_cPGconn, "client_encoding=", "set_client_encoding");
+	rb_define_private_method(rb_cPGconn, "set_internal_encoding_index_from_rb_encname", pgconn_set_internal_encoding_index_from_rb_encname, 1);
 	rb_define_method(rb_cPGconn, "block", pgconn_block, -1);
 	rb_define_private_method(rb_cPGconn, "flush_data=", pgconn_flush_data_set, 1);
 	rb_define_method(rb_cPGconn, "wait_for_notify", pgconn_wait_for_notify, -1);
@@ -4632,7 +4515,6 @@ init_pg_connection(void)
 	rb_define_method(rb_cPGconn, "internal_encoding", pgconn_internal_encoding, 0);
 	rb_define_method(rb_cPGconn, "internal_encoding=", pgconn_internal_encoding_set, 1);
 	rb_define_method(rb_cPGconn, "external_encoding", pgconn_external_encoding, 0);
-	rb_define_method(rb_cPGconn, "set_default_encoding", pgconn_set_default_encoding, 0);
 
 	rb_define_method(rb_cPGconn, "type_map_for_queries=", pgconn_type_map_for_queries_set, 1);
 	rb_define_method(rb_cPGconn, "type_map_for_queries", pgconn_type_map_for_queries_get, 0);

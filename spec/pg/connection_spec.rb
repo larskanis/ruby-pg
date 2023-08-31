@@ -2361,6 +2361,8 @@ describe PG::Connection do
 					expect( conn.internal_encoding ).to eq( Encoding::ISO8859_2 )
 					res = conn.exec( "SELECT foo FROM defaultinternaltest" )
 					expect( res[0]['foo'].encoding ).to eq( Encoding::ISO8859_2 )
+					res = conn.exec( "SHOW client_encoding" )
+					expect( res[0]['client_encoding'] ).to eq( 'LATIN2' )
 				ensure
 					conn.exec( "DROP TABLE defaultinternaltest" )
 					conn.finish if conn
