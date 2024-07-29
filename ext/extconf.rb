@@ -23,7 +23,7 @@ else
 	$stderr.puts "Calling libpq with GVL locked"
 end
 
-if enable_config("windows-cross")
+if enable_config("cross-build")
 	gem 'mini_portile2', '~>2.1'
 	require 'mini_portile2'
 
