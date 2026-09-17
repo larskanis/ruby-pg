@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require 'drb/drb'
+require 'tempfile'
 
 # This is a wrapper of TcpGateSwitcher running in a separate process to avoid the need of threads.
 # It can therefore be used in conjunction with blocking GVL locking functions.
@@ -32,9 +33,12 @@ class TcpGateSwitcherProcess
 			# puts "TcpGateSwitcherProcess finished"
 		RBTEXT
 
-		io = IO.popen("ruby", "w+")
-		io.write rbtext
-		io.close_write
+		tf = Tempfile.new('gate')
+		tf.write(rbtext)
+		tf.close
+		@tempfile = tf # Save the file handle, so that the file not not deleted before opened by ruby (especially on Windows)
+
+		io = IO.popen([RbConfig::CONFIG['ruby_install_name'], tf.path])
 		server_uri = io.gets.strip
 		@server = DRbObject.new_with_uri(server_uri)
 		# Call initialize through DRb, so that Exceptions are passed to caller
