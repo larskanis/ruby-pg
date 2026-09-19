@@ -680,8 +680,9 @@ module PG::TestingHelpers
 
 	def build_oauth_validator
 		skip "requires a PostgreSQL 18 cluster" unless $pg_server.version >= 18
+		skip "TODO: fix build of dummy_validator extension on platform #{RUBY_PLATFORM}" if ENV['BROKEN_PGXS'] == "yes"
 
-		system "make", "-s", "-C", (TEST_DIRECTORY + "spec/oauth").to_s
+		system "make", "-C", (TEST_DIRECTORY + "spec/oauth").to_s, "WINDRES=windres"
 		raise "Building OAuth validator library failed!" unless $?.success?
 
 		require 'webrick'

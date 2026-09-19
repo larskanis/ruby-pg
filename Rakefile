@@ -34,6 +34,7 @@ CLEAN.include "lib/pg_ext.*"
 CLEAN.include "lib/pg/postgresql_lib_path.rb"
 CLEAN.include "ports/*.installed"
 CLEAN.include "ports/*mingw*", "ports/*linux*", "ports/*darwin*"
+CLEAN.include "spec/oauth/*.o", "spec/oauth/*.so", "spec/oauth/*.dll",  "spec/oauth/*.a"
 
 PgGemHelper.install_tasks
 $gem_spec = Bundler.load_gemspec(GEMSPEC)

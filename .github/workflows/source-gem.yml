@@ -54,6 +54,7 @@ jobs:
             ruby: "mswin"
             PGVERSION: 18.0-1-windows-x64
             PGVER: "18"
+            BROKEN_PGXS: yes
           - os: ubuntu
             ruby: "head"
             PGVER: "18"
@@ -74,12 +75,14 @@ jobs:
             ruby: "head"
             PGVERSION: 18.0-2-osx
             PGVER: "18"
+            BROKEN_PGXS: yes
 
     runs-on: ${{ matrix.os }}-${{ matrix.os_ver || 'latest' }}
     env:
       PGVERSION: ${{ matrix.PGVERSION }}
       PGVER: ${{ matrix.PGVER }}
       MAKE: make -j2 V=1
+      BROKEN_PGXS: ${{ matrix.BROKEN_PGXS }}
 
     steps:
       - uses: actions/checkout@v7
@@ -142,7 +145,8 @@ jobs:
           sudo mkdir -p /Library/PostgreSQL && \
           sudo unzip postgresql-$PGVERSION-binaries.zip -d /Library/PostgreSQL/$PGVER && \
           sudo mv /Library/PostgreSQL/$PGVER/pgsql/* /Library/PostgreSQL/$PGVER/ && \
-          echo /Library/PostgreSQL/$PGVER/bin >> $GITHUB_PATH
+          echo /Library/PostgreSQL/$PGVER/bin >> $GITHUB_PATH && \
+          xcrun -sdk macosx --show-sdk-path
 
       - run: echo $env:PATH
       - run: gem install --local *.gem --verbose
