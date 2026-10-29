@@ -63,6 +63,9 @@ describe "GC.compact", if: GC.respond_to?(:compact) do
 			CANCON.socket_io
 		end
 
+		TEXTDEC_NUMERIC = PG::TextDecoder::Numeric.new
+		BIGDECIMAL = TEXTDEC_NUMERIC.decode('1299.00')
+
 		begin
 			# Use GC.verify_compaction_references instead of GC.compact .
 			# This has the advantage that all movable objects are actually moved.
@@ -125,6 +128,10 @@ describe "GC.compact", if: GC.respond_to?(:compact) do
 
 	it "should compact PG::CancelConnection", :postgresql_17 do
 		expect( CANCON.socket_io ).to be_kind_of( IO )
+	end
+
+	it "should compact PG::TextDecoder::Numeric cache" do
+		expect( BIGDECIMAL ).to equal( TEXTDEC_NUMERIC.decode('1299.00') )
 	end
 
 	after :all do
